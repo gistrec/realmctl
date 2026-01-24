@@ -1,10 +1,11 @@
 import os
 import base64
 import hashlib
-import webbrowser
+
 import requests
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlencode, urlparse, parse_qs
+from urllib.parse import urlencode
+
+from db import get_setting, set_setting
 
 
 # =========================
@@ -14,6 +15,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 CLIENT_ID = "c36a9fb6-4f2a-41ff-90bd-ae7cc92031eb"
 REDIRECT_URI = "http://localhost:3000"
 SCOPES = "XboxLive.signin offline_access"
+MS_TOKEN_KEY = "microsoft_access_token"
 
 
 # =========================
@@ -28,25 +30,15 @@ def gen_pkce():
 
 
 # =========================
-# CALLBACK SERVER
-# =========================
-class CallbackHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        qs = parse_qs(urlparse(self.path).query)
-        self.server.code = qs.get("code", [None])[0]
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"You can close this window.")
-
-    def log_message(self, *args):
-        pass
-
-
-# =========================
 # MICROSOFT LOGIN
 # =========================
 def microsoft_login():
-    verifier, challenge = gen_pkce()
+    cached_token = get_setting(MS_TOKEN_KEY)
+    if cached_token:
+        print("✅ Using cached Microsoft token from settings table.")
+        return cached_token
+
+    _, challenge = gen_pkce()
 
     url = (
         "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"
@@ -60,28 +52,17 @@ def microsoft_login():
         })
     )
 
-    print("🔐 Opening Microsoft login...")
-    webbrowser.open(url)
+    print("🔐 Microsoft login required.")
+    print("Open this URL on a machine with a browser and complete the login:")
+    print(url)
 
-    server = HTTPServer(("localhost", 3000), CallbackHandler)
-    server.handle_request()
+    ms_token = input("Paste the Microsoft access token here: ").strip()
+    if not ms_token:
+        raise RuntimeError("Microsoft access token was not provided")
 
-    code = server.code
-    if not code:
-        raise RuntimeError("Login failed")
-
-    token = requests.post(
-        "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
-        data={
-            "client_id": CLIENT_ID,
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": REDIRECT_URI,
-            "code_verifier": verifier,
-        },
-    ).json()
-
-    return token["access_token"]
+    set_setting(MS_TOKEN_KEY, ms_token)
+    print("💾 Microsoft token saved to settings table.")
+    return ms_token
 
 
 # =========================
