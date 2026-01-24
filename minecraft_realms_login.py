@@ -15,7 +15,11 @@ from db import get_setting, set_setting
 CLIENT_ID = "c36a9fb6-4f2a-41ff-90bd-ae7cc92031eb"
 REDIRECT_URI = "http://localhost:3000"
 SCOPES = "XboxLive.signin offline_access"
-MS_TOKEN_KEY = "microsoft_access_token"
+
+MS_TOKEN_KEY = "microsoft_token"
+
+ACCESS_TOKEN_TOKEN_KEY = "access_token"
+REFRESH_TOKEN_KEY = "refresh_token"
 
 
 # =========================
@@ -38,7 +42,7 @@ def microsoft_login():
         print("✅ Using cached Microsoft token from settings table.")
         return cached_token
 
-    _, challenge = gen_pkce()
+    verifier, challenge = gen_pkce()
 
     url = (
         "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"
@@ -61,8 +65,25 @@ def microsoft_login():
         raise RuntimeError("Microsoft access token was not provided")
 
     set_setting(MS_TOKEN_KEY, ms_token)
+
+
+    token = requests.post(
+        "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+        data={
+            "client_id": CLIENT_ID,
+            "grant_type": "authorization_code",
+            "code": ms_token,
+            "redirect_uri": REDIRECT_URI,
+            "code_verifier": verifier,
+        },
+    ).json()
+
+    set_setting(ACCESS_TOKEN_TOKEN_KEY, token["access_token"])
+    set_setting(REFRESH_TOKEN_KEY, token["refresh_token"])
+
     print("💾 Microsoft token saved to settings table.")
-    return ms_token
+
+    return token["access_token"]
 
 
 # =========================

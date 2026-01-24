@@ -1,5 +1,7 @@
 import os
 
+from typing import Optional
+
 from sqlalchemy import create_engine, Column, String
 from sqlalchemy.orm import sessionmaker, declarative_base
 
@@ -42,7 +44,7 @@ def set_setting(key: str, value: str) -> None:
         session.commit()
 
 
-def get_setting(key: str) -> str | None:
+def get_setting(key: str) -> Optional[str]:
     with SessionLocal() as session:
         setting = session.get(Setting, key)
         return setting.value if setting else None
