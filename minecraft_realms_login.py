@@ -18,7 +18,7 @@ SCOPES = "XboxLive.signin offline_access"
 
 MS_TOKEN_KEY = "microsoft_token"
 
-ACCESS_TOKEN_TOKEN_KEY = "access_token"
+ACCESS_TOKEN_KEY = "access_token"
 REFRESH_TOKEN_KEY = "refresh_token"
 
 
@@ -37,10 +37,10 @@ def gen_pkce():
 # MICROSOFT LOGIN
 # =========================
 def microsoft_login():
-    cached_token = get_setting(MS_TOKEN_KEY)
-    if cached_token:
+    cached_access_token = get_setting(ACCESS_TOKEN_KEY)
+    if cached_access_token:
         print("✅ Using cached Microsoft token from settings table.")
-        return cached_token
+        return cached_access_token
 
     verifier, challenge = gen_pkce()
 
@@ -66,7 +66,6 @@ def microsoft_login():
 
     set_setting(MS_TOKEN_KEY, ms_token)
 
-
     token = requests.post(
         "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
         data={
@@ -78,7 +77,7 @@ def microsoft_login():
         },
     ).json()
 
-    set_setting(ACCESS_TOKEN_TOKEN_KEY, token["access_token"])
+    set_setting(ACCESS_TOKEN_KEY, token["access_token"])
     set_setting(REFRESH_TOKEN_KEY, token["refresh_token"])
 
     print("💾 Microsoft token saved to settings table.")
