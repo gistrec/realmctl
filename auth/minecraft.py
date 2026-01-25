@@ -104,3 +104,45 @@ class MinecraftAuth:
 
         r.raise_for_status()
         return r.json()
+
+
+    def get_world_backups(self, mc_token: str, uuid: str, name: str, world_id: int) -> dict:
+        """
+        Get info about a specific Realm world
+        """
+        r = requests.get(
+            f"{self.REALMS_BASE}/worlds/{world_id}/backups",
+            cookies=self._realm_cookies(mc_token, uuid, name),
+            timeout=15,
+        )
+
+        r.raise_for_status()
+        return r.json()
+
+
+    def get_world_last_backup(self, mc_token: str, uuid: str, name: str, world_id: int, slot: int) -> dict:
+        """
+        Get info about a specific Realm world
+        """
+        r = requests.get(
+            f"{self.REALMS_BASE}/worlds/{world_id}/slot/{slot}/download",
+            cookies=self._realm_cookies(mc_token, uuid, name),
+            timeout=15,
+        )
+
+        r.raise_for_status()
+        return r.json()
+
+
+    def get_realm_ip(self, mc_token: str, uuid: str, name: str, world_id: int) -> dict:
+        """
+        Get info about a specific Realm world
+        """
+        r = requests.get(
+            f"{self.REALMS_BASE}/worlds/v1/{world_id}/join/pc",
+            cookies=self._realm_cookies(mc_token, uuid, name),
+            timeout=15,
+        )
+
+        r.raise_for_status()
+        return r.json()

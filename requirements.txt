@@ -1,3 +1,5 @@
 requests
 sqlalchemy
 mysqlclient
+python-telegram-bot
+asyncio

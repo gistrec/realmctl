@@ -1,8 +1,12 @@
+import asyncio
+
+from requests import HTTPError
+
 from auth.microsoft import MicrosoftAuth
 from auth.xbox import XboxAuth
 from auth.minecraft import MinecraftAuth
 
-from requests import HTTPError
+from tg import update_status
 
 
 def _is_auth_error(error: HTTPError) -> bool:
@@ -11,14 +15,13 @@ def _is_auth_error(error: HTTPError) -> bool:
         return False
     return response.status_code in {401, 403}
 
-# =========================
-# MAIN
-# =========================
-def main():
+
+async def main():
     ms = MicrosoftAuth()
     xbox = XboxAuth()
     mc = MinecraftAuth()
 
+    # Microsoft
     try:
         token = ms.get_access_token()
     except:
@@ -52,17 +55,25 @@ def main():
         mc_token = mc.authenticate(xsts_token, uhs)
         profile = mc.get_profile(mc_token)
 
-    print(profile)
-
     uuid = profile["id"]
     name = profile["name"]
 
     print(f"Logged in as: {name}")
 
     for world in mc.get_worlds(mc_token, uuid, name)["servers"]:
-        print(mc.get_world_info(mc_token, uuid, name, world["id"]))
+        if world["id"] != 12829680:
+            continue
 
+        print("=== world info ===")
+        world_info = mc.get_world_info(mc_token, uuid, name, world["id"])
+        online_players = sorted([player["name"] for player in world_info["players"] if player["online"]])
+        print(online_players)
+
+        await update_status(online_players)
+
+        # print("\n=== backup ===")
+        # print(mc.get_world_last_backup(mc_token, uuid, name, world["id"], 1))
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
