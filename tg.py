@@ -12,7 +12,7 @@ from db import get_setting, remove_setting, set_setting
 
 # === CONFIG ===
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = -1003410760885
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 MESSAGE_ID_KEY = "realm_status_message_id"
 PLAYER_SESSIONS_KEY = "realm_player_sessions"
@@ -49,8 +49,10 @@ def _format_duration(started_at: datetime, now: datetime) -> str:
         total_minutes = 0
     hours = total_minutes // 60
     minutes = total_minutes % 60
-    return f"(Играет {hours} час {minutes} мин)"
-
+    if hours == 0:
+        return f"(Играет {minutes}м)"
+    else:
+        return f"(Играет {hours}ч {minutes}м)"
 
 def _format_message(players: List[str], sessions: Dict[str, int]) -> str:
     now_msk = datetime.now(MSK).strftime("%H:%M")
