@@ -44,15 +44,20 @@ def _save_player_sessions(sessions: Dict[str, int]) -> None:
 
 
 def _format_duration(started_at: datetime, now: datetime) -> str:
-    total_minutes = round((now - started_at).total_seconds() / 60)
-    if total_minutes < 0:
-        total_minutes = 0
+    total_minutes = int((now - started_at).total_seconds() // 60)
+    total_minutes = max(total_minutes, 0)
+
     hours = total_minutes // 60
     minutes = total_minutes % 60
+
+    if hours == 0 and minutes == 0:
+        return f"(Играет недавно)"
+
     if hours == 0:
-        return f"(Играет {minutes}м)"
-    else:
-        return f"(Играет {hours}ч {minutes}м)"
+        return f"(Играет {minutes} мин)"
+
+    return f"(Играет {hours}ч {minutes} мин)"
+
 
 def _format_message(players: List[str], sessions: Dict[str, int]) -> str:
     now_msk = datetime.now(MSK).strftime("%H:%M")
