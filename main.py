@@ -1,24 +1,15 @@
-import os
-import time
-import base64
-import hashlib
-import requests
-
-from urllib.parse import urlencode
-
 from auth.microsoft import MicrosoftAuth
 from auth.xbox import XboxAuth
 from auth.minecraft import MinecraftAuth
 
-from db import get_setting, set_setting
+from requests import HTTPError
 
 
-
-MS_ACCESS_TOKEN_EXPIRES_KEY = "ms_access_token_expires"
-MS_ACCESS_TOKEN_KEY = "access_token"
-MS_REFRESH_TOKEN_KEY = "refresh_token"
-
-
+def _is_auth_error(error: HTTPError) -> bool:
+    response = getattr(error, "response", None)
+    if response is None:
+        return False
+    return response.status_code in {401, 403}
 
 # =========================
 # MAIN
@@ -34,12 +25,32 @@ def main():
         token = ms.login()
 
     # Xbox
-    xbl_token, uhs = xbox.authenticate(token)
-    xsts_token, _ = xbox.authorize_xsts(xbl_token)
+    xbl_token, uhs = xbox.get_xbl_token(token)
+    try:
+        xsts_token, uhs = xbox.get_xsts_token(xbl_token)
+    except HTTPError as error:
+        if not _is_auth_error(error):
+            raise
+        xbl_token, uhs = xbox.authenticate(token)
+        xsts_token, uhs = xbox.authorize_xsts(xbl_token)
 
     # Minecraft
-    mc_token = mc.authenticate(xsts_token, uhs)
-    profile = mc.get_profile(mc_token)
+    try:
+        mc_token = mc.get_token(xsts_token, uhs)
+    except HTTPError as error:
+        if not _is_auth_error(error):
+            raise
+        xbl_token, uhs = xbox.authenticate(token)
+        xsts_token, uhs = xbox.authorize_xsts(xbl_token)
+        mc_token = mc.authenticate(xsts_token, uhs)
+
+    try:
+        profile = mc.get_profile(mc_token)
+    except HTTPError as error:
+        if not _is_auth_error(error):
+            raise
+        mc_token = mc.authenticate(xsts_token, uhs)
+        profile = mc.get_profile(mc_token)
 
     print(profile)
 

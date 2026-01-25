@@ -1,4 +1,8 @@
+import time
+
 import requests
+
+from db import get_setting, set_setting
 
 
 class MinecraftAuth:
@@ -7,12 +11,24 @@ class MinecraftAuth:
 
     REALMS_BASE = "https://pc.realms.minecraft.net"
 
+    MC_TOKEN_KEY = "mc_token"
+    MC_EXPIRES_KEY = "mc_token_expires"
+
     def _realm_cookies(self, mc_token: str, uuid: str, name: str) -> dict:
         return {
             "sid": f"token:{mc_token}:{uuid}",
             "user": name,
             "version": "1.20.4",
         }
+
+    def get_token(self, xsts_token: str, user_hash: str) -> str:
+        token = get_setting(self.MC_TOKEN_KEY)
+        expires = get_setting(self.MC_EXPIRES_KEY)
+
+        if token and expires and time.time() < float(expires):
+            return token
+
+        return self.authenticate(xsts_token, user_hash)
 
     def authenticate(self, xsts_token: str, user_hash: str) -> str:
         """
@@ -30,7 +46,12 @@ class MinecraftAuth:
         r.raise_for_status()
         data = r.json()
 
-        return data["access_token"]
+        token = data["access_token"]
+        set_setting(self.MC_TOKEN_KEY, token)
+        expires_in = int(data.get("expires_in", 23 * 3600))
+        set_setting(self.MC_EXPIRES_KEY, str(int(time.time()) + expires_in - 60))
+
+        return token
 
     def check_realms_available(self, mc_token, uuid, name):
         """
