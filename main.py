@@ -7,6 +7,10 @@ from auth.xbox import XboxAuth
 from auth.minecraft import MinecraftAuth
 
 from tg import update_status
+from db import set_setting
+
+
+LAST_BACKUP_URL = "last_backup_url"
 
 
 def _is_auth_error(error: HTTPError) -> bool:
@@ -71,8 +75,9 @@ async def main():
 
         await update_status(online_players)
 
-        # print("\n=== backup ===")
-        # print(mc.get_world_last_backup(mc_token, uuid, name, world["id"], 1))
+        print("\n=== backup ===")
+        last_backup = mc.get_world_last_backup(mc_token, uuid, name, world["id"], 1)
+        set_setting(LAST_BACKUP_URL, last_backup["downloadLink"])
 
 
 if __name__ == "__main__":
