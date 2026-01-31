@@ -2,7 +2,7 @@ import json
 import os
 
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List
+from typing import Dict, List, TypedDict
 
 from telegram import Bot
 from telegram.error import BadRequest
@@ -16,10 +16,16 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 MESSAGE_ID_KEY = "realm_status_message_id"
 PLAYER_SESSIONS_KEY = "realm_player_sessions"
+SESSION_GRACE_PERIOD = timedelta(minutes=10)
 
 MSK = timezone(timedelta(hours=3))
 
-def _load_player_sessions() -> Dict[str, int]:
+class PlayerSession(TypedDict):
+    started_at: int
+    last_seen: int
+
+
+def _load_player_sessions() -> Dict[str, PlayerSession]:
     raw = get_setting(PLAYER_SESSIONS_KEY)
     if not raw:
         return {}
@@ -29,14 +35,22 @@ def _load_player_sessions() -> Dict[str, int]:
         return {}
     if not isinstance(data, dict):
         return {}
-    sessions: Dict[str, int] = {}
-    for name, ts in data.items():
-        if isinstance(name, str) and isinstance(ts, int):
-            sessions[name] = ts
+    sessions: Dict[str, PlayerSession] = {}
+    for name, session in data.items():
+        if not isinstance(name, str):
+            continue
+        if isinstance(session, int):
+            sessions[name] = {"started_at": session, "last_seen": session}
+            continue
+        if isinstance(session, dict):
+            started_at = session.get("started_at")
+            last_seen = session.get("last_seen")
+            if isinstance(started_at, int) and isinstance(last_seen, int):
+                sessions[name] = {"started_at": started_at, "last_seen": last_seen}
     return sessions
 
 
-def _save_player_sessions(sessions: Dict[str, int]) -> None:
+def _save_player_sessions(sessions: Dict[str, PlayerSession]) -> None:
     if not sessions:
         remove_setting(PLAYER_SESSIONS_KEY)
         return
@@ -59,13 +73,13 @@ def _format_duration(started_at: datetime, now: datetime) -> str:
     return f"(Играет {hours}ч {minutes} мин)"
 
 
-def _format_message(players: List[str], sessions: Dict[str, int]) -> str:
+def _format_message(players: List[str], sessions: Dict[str, PlayerSession]) -> str:
     now_msk = datetime.now(MSK).strftime("%H:%M")
     now_utc = datetime.now(timezone.utc)
 
     if players:
         players_block = "\n".join(
-            f"• {name} {_format_duration(datetime.fromtimestamp(sessions[name], timezone.utc), now_utc)}"
+            f"• {name} {_format_duration(datetime.fromtimestamp(sessions[name]['started_at'], timezone.utc), now_utc)}"
             for name in players
         )
         online = len(players)
@@ -88,12 +102,18 @@ async def update_status(players: List[str]) -> None:
     now_utc = datetime.now(timezone.utc)
     sessions = _load_player_sessions()
     current_players = set(players)
-    if not current_players:
-        sessions = {}
-    else:
-        sessions = {name: ts for name, ts in sessions.items() if name in current_players}
-        for name in players:
-            sessions.setdefault(name, int(now_utc.timestamp()))
+    now_ts = int(now_utc.timestamp())
+    for name in players:
+        if name in sessions:
+            sessions[name]["last_seen"] = now_ts
+        else:
+            sessions[name] = {"started_at": now_ts, "last_seen": now_ts}
+    cutoff = int((now_utc - SESSION_GRACE_PERIOD).timestamp())
+    sessions = {
+        name: session
+        for name, session in sessions.items()
+        if session["last_seen"] >= cutoff
+    }
     _save_player_sessions(sessions)
     text = _format_message(players, sessions)
 
