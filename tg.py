@@ -16,6 +16,7 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 MESSAGE_ID_KEY = "realm_status_message_id"
 PLAYER_SESSIONS_KEY = "realm_player_sessions"
+TERRARIA_PLAYER_SESSIONS_KEY = "terraria_player_sessions"
 SESSION_GRACE_PERIOD = timedelta(minutes=10)
 
 MSK = timezone(timedelta(hours=3))
@@ -57,6 +58,19 @@ def _save_player_sessions(sessions: Dict[str, PlayerSession]) -> None:
     set_setting(PLAYER_SESSIONS_KEY, json.dumps(sessions))
 
 
+def _load_terraria_players() -> List[str]:
+    raw = get_setting(TERRARIA_PLAYER_SESSIONS_KEY)
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, dict):
+        return []
+    return [name for name in data.keys() if isinstance(name, str)]
+
+
 def _format_duration(started_at: datetime, now: datetime) -> str:
     total_minutes = int((now - started_at).total_seconds() // 60)
     total_minutes = max(total_minutes, 0)
@@ -78,10 +92,14 @@ def _format_message(players: List[str], sessions: Dict[str, PlayerSession]) -> s
     now_utc = datetime.now(timezone.utc)
 
     if players:
-        players_block = "\n".join(
-            f"• {name} {_format_duration(datetime.fromtimestamp(sessions[name]['started_at'], timezone.utc), now_utc)}"
-            for name in players
-        )
+        players_rows = []
+        for name in players:
+            if name in sessions:
+                duration = _format_duration(datetime.fromtimestamp(sessions[name]["started_at"], timezone.utc), now_utc)
+                players_rows.append(f"• {name} {duration}")
+            else:
+                players_rows.append(f"• {name}")
+        players_block = "\n".join(players_rows)
         online = len(players)
     else:
         players_block = "— никого нет —"
@@ -101,7 +119,7 @@ async def update_status(players: List[str]) -> None:
     bot = Bot(token=BOT_TOKEN)
     now_utc = datetime.now(timezone.utc)
     sessions = _load_player_sessions()
-    current_players = set(players)
+    terraria_players = _load_terraria_players()
     now_ts = int(now_utc.timestamp())
     for name in players:
         if name in sessions:
@@ -115,7 +133,9 @@ async def update_status(players: List[str]) -> None:
         if session["last_seen"] >= cutoff
     }
     _save_player_sessions(sessions)
-    text = _format_message(players, sessions)
+
+    all_players = players + [name for name in terraria_players if name not in players]
+    text = _format_message(all_players, sessions)
 
     message_id = get_setting(MESSAGE_ID_KEY)
 
