@@ -16,7 +16,10 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 MESSAGE_ID_KEY = "realm_status_message_id"
 PLAYER_SESSIONS_KEY = "realm_player_sessions"
+PLAYTIME_LOG_KEY = "realm_playtime_log"
+
 SESSION_GRACE_PERIOD = timedelta(minutes=10)
+WEEK_SECONDS = 7 * 24 * 3600
 
 MSK = timezone(timedelta(hours=3))
 
@@ -57,6 +60,49 @@ def _save_player_sessions(sessions: Dict[str, PlayerSession]) -> None:
     set_setting(PLAYER_SESSIONS_KEY, json.dumps(sessions))
 
 
+# Playtime log: {player: [[start_ts, duration_secs], ...]}
+def _load_playtime_log() -> Dict[str, List[List[int]]]:
+    raw = get_setting(PLAYTIME_LOG_KEY)
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return data
+
+
+def _save_playtime_log(log: Dict[str, List[List[int]]], now_ts: int) -> None:
+    cutoff = now_ts - WEEK_SECONDS
+    pruned = {
+        player: [[s, d] for s, d in entries if s >= cutoff]
+        for player, entries in log.items()
+    }
+    pruned = {p: e for p, e in pruned.items() if e}
+    if not pruned:
+        remove_setting(PLAYTIME_LOG_KEY)
+    else:
+        set_setting(PLAYTIME_LOG_KEY, json.dumps(pruned))
+
+
+def _record_session(log: Dict[str, List[List[int]]], player: str, start_ts: int, end_ts: int) -> None:
+    duration = max(end_ts - start_ts, 0)
+    if duration == 0:
+        return
+    log.setdefault(player, []).append([start_ts, duration])
+
+
+def _format_playtime(total_seconds: int) -> str:
+    total_minutes = total_seconds // 60
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+    if hours == 0:
+        return f"{minutes} мин"
+    return f"{hours}ч {minutes} мин"
+
+
 def _format_duration(started_at: datetime, now: datetime) -> str:
     total_minutes = int((now - started_at).total_seconds() // 60)
     total_minutes = max(total_minutes, 0)
@@ -73,9 +119,9 @@ def _format_duration(started_at: datetime, now: datetime) -> str:
     return f"(Играет {hours}ч {minutes} мин)"
 
 
-def _format_message(players: List[str], sessions: Dict[str, PlayerSession]) -> str:
+def _format_message(players: List[str], sessions: Dict[str, PlayerSession], playtime_log: Dict[str, List[List[int]]], now_ts: int) -> str:
     now_msk = datetime.now(MSK).strftime("%H:%M")
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.fromtimestamp(now_ts, timezone.utc)
 
     if players:
         players_block = "\n".join(
@@ -87,11 +133,31 @@ def _format_message(players: List[str], sessions: Dict[str, PlayerSession]) -> s
         players_block = "— никого нет —"
         online = 0
 
+    # Weekly stats: all players with playtime in the last 7 days
+    cutoff = now_ts - WEEK_SECONDS
+    weekly: Dict[str, int] = {}
+    for player, entries in playtime_log.items():
+        total = sum(d for s, d in entries if s >= cutoff)
+        if total > 0:
+            weekly[player] = total
+    for name, session in sessions.items():
+        weekly[name] = weekly.get(name, 0) + max(now_ts - session["started_at"], 0)
+
+    if weekly:
+        weekly_lines = "\n".join(
+            f"• {name}: {_format_playtime(secs)}"
+            for name, secs in sorted(weekly.items(), key=lambda x: -x[1])
+        )
+        weekly_section = f"\n📊 *За неделю:*\n{weekly_lines}\n"
+    else:
+        weekly_section = ""
+
     return (
         f"👥 *Онлайн:* {online}\n"
         f"\n"
         f"🟢 *Игроки:*\n"
         f"{players_block}\n"
+        f"{weekly_section}"
         f"\n"
         f"🕒 _Обновлено: {now_msk} (МСК)_"
     )
@@ -100,22 +166,34 @@ def _format_message(players: List[str], sessions: Dict[str, PlayerSession]) -> s
 async def update_status(players: List[str]) -> None:
     bot = Bot(token=BOT_TOKEN)
     now_utc = datetime.now(timezone.utc)
-    sessions = _load_player_sessions()
-    current_players = set(players)
     now_ts = int(now_utc.timestamp())
+
+    sessions = _load_player_sessions()
+    playtime_log = _load_playtime_log()
+
+    # Update last_seen for current players, create new sessions for newcomers
     for name in players:
         if name in sessions:
             sessions[name]["last_seen"] = now_ts
         else:
             sessions[name] = {"started_at": now_ts, "last_seen": now_ts}
-    cutoff = int((now_utc - SESSION_GRACE_PERIOD).timestamp())
+
+    # Record completed sessions for players whose grace period has expired
+    grace_cutoff = int((now_utc - SESSION_GRACE_PERIOD).timestamp())
+    for name, session in sessions.items():
+        if session["last_seen"] < grace_cutoff:
+            _record_session(playtime_log, name, session["started_at"], session["last_seen"])
+
+    # Prune expired sessions
     sessions = {
         name: session
         for name, session in sessions.items()
-        if session["last_seen"] >= cutoff
+        if session["last_seen"] >= grace_cutoff
     }
+
     _save_player_sessions(sessions)
-    text = _format_message(players, sessions)
+    _save_playtime_log(playtime_log, now_ts)
+    text = _format_message(players, sessions, playtime_log, now_ts)
 
     message_id = get_setting(MESSAGE_ID_KEY)
 
